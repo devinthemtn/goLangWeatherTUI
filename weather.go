@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,8 +19,11 @@ const (
 	openWeatherMapURL = "https://api.openweathermap.org/data/2.5/weather"
 	geoLocationURL    = "https://api.openweathermap.org/geo/1.0/zip"
 
-	// IP Geolocation service (free, no API key required)
-	ipGeolocationURL = "https://ipapi.co/json/"
+	// IP geolocation services (free, no API key required), tried in order
+	// since free tiers rate-limit aggressively.
+	ipwhoURL  = "https://ipwho.is/"
+	ipinfoURL = "https://ipinfo.io/json"
+	ipapiURL  = "https://ipapi.co/json/"
 
 	// OpenWeatherMap API key: get one free at https://openweathermap.org/api
 	// and store it encrypted with sops+age (see README / `make secrets`).
@@ -88,6 +92,9 @@ func (m Model) fetchWeatherByLocation() tea.Cmd {
 		// Get current location from IP
 		location, err := getCurrentLocation()
 		if err != nil {
+			if zip := getDefaultZip(); zip != "" {
+				return m.fetchWeatherByZip(zip)()
+			}
 			return ErrorMsg{Error: fmt.Sprintf("Failed to get location: %v", err)}
 		}
 
@@ -134,31 +141,101 @@ func (m Model) fetchWeatherByZip(zipCode string) tea.Cmd {
 	}
 }
 
-// getCurrentLocation gets the current location using IP geolocation
+// getCurrentLocation gets the current location using IP geolocation,
+// trying several free providers until one succeeds.
 func getCurrentLocation() (*IPLocationResponse, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
+	providers := []struct {
+		name  string
+		fetch func() (*IPLocationResponse, error)
+	}{
+		{"ipwho.is", fetchIPWho},
+		{"ipinfo.io", fetchIPInfo},
+		{"ipapi.co", fetchIPAPI},
+	}
 
-	resp, err := client.Get(ipGeolocationURL)
+	var errs []string
+	for _, p := range providers {
+		loc, err := p.fetch()
+		if err == nil && (loc.Latitude != 0 || loc.Longitude != 0) {
+			return loc, nil
+		}
+		if err == nil {
+			err = fmt.Errorf("no coordinates returned")
+		}
+		errs = append(errs, fmt.Sprintf("%s: %v", p.name, err))
+	}
+	return nil, fmt.Errorf("all geolocation providers failed (%s)", strings.Join(errs, "; "))
+}
+
+// getJSON GETs url and decodes the JSON body into v.
+func getJSON(url string, v any) error {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+		return fmt.Errorf("status %d", resp.StatusCode)
 	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
 	}
+	return nil
+}
 
-	var location IPLocationResponse
-	if err := json.Unmarshal(body, &location); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+func fetchIPWho() (*IPLocationResponse, error) {
+	var r struct {
+		Success     bool    `json:"success"`
+		Message     string  `json:"message"`
+		City        string  `json:"city"`
+		Region      string  `json:"region"`
+		CountryCode string  `json:"country_code"`
+		Country     string  `json:"country"`
+		Latitude    float64 `json:"latitude"`
+		Longitude   float64 `json:"longitude"`
+		Postal      string  `json:"postal"`
 	}
+	if err := getJSON(ipwhoURL, &r); err != nil {
+		return nil, err
+	}
+	if !r.Success {
+		return nil, fmt.Errorf("%s", r.Message)
+	}
+	return &IPLocationResponse{
+		City: r.City, Region: r.Region, Country: r.CountryCode, CountryName: r.Country,
+		Latitude: r.Latitude, Longitude: r.Longitude, Postal: r.Postal,
+	}, nil
+}
 
-	return &location, nil
+func fetchIPInfo() (*IPLocationResponse, error) {
+	var r struct {
+		City    string `json:"city"`
+		Region  string `json:"region"`
+		Country string `json:"country"`
+		Loc     string `json:"loc"` // "lat,lon"
+		Postal  string `json:"postal"`
+	}
+	if err := getJSON(ipinfoURL, &r); err != nil {
+		return nil, err
+	}
+	var lat, lon float64
+	if _, err := fmt.Sscanf(r.Loc, "%f,%f", &lat, &lon); err != nil {
+		return nil, fmt.Errorf("bad loc %q", r.Loc)
+	}
+	return &IPLocationResponse{
+		City: r.City, Region: r.Region, Country: r.Country,
+		Latitude: lat, Longitude: lon, Postal: r.Postal,
+	}, nil
+}
+
+func fetchIPAPI() (*IPLocationResponse, error) {
+	var loc IPLocationResponse
+	if err := getJSON(ipapiURL, &loc); err != nil {
+		return nil, err
+	}
+	return &loc, nil
 }
 
 // getCoordinatesFromZip gets coordinates for a ZIP code

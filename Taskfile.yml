@@ -7,6 +7,7 @@ vars:
   BUILD_DIR: ./bin
   LDFLAGS: -s -w
   SECRETS_FILE: secrets.enc.env
+  CONFIG_DIR: '{{.XDG_CONFIG_HOME | default (printf "%s/.config" .HOME)}}/weather-tui'
   AGE_KEY_FILE: '{{.SOPS_AGE_KEY_FILE | default (printf "%s/.config/sops/age/keys.txt" .HOME)}}'
 
 tasks:
@@ -75,9 +76,25 @@ tasks:
       - go mod tidy
 
   install:
-    desc: Install to GOPATH/bin
+    desc: Install weather-tui to $GOBIN (or $GOPATH/bin) and copy secrets to {{.CONFIG_DIR}}
+    vars:
+      INSTALL_DIR:
+        sh: d=$(go env GOBIN); [ -n "$d" ] || d="$(go env GOPATH)/bin"; echo "$d"
     cmds:
-      - go install .
+      - mkdir -p "{{.INSTALL_DIR}}"
+      - go build -ldflags "{{.LDFLAGS}}" -o "{{.INSTALL_DIR}}/{{.BINARY_NAME}}" .
+      - rm -f "{{.INSTALL_DIR}}/goWeatherTUI"  # old name from plain `go install`
+      - task: secrets-sync
+      - echo "Installed {{.INSTALL_DIR}}/{{.BINARY_NAME}}"
+
+  uninstall:
+    desc: Remove the installed binary and the copied secrets
+    vars:
+      INSTALL_DIR:
+        sh: d=$(go env GOBIN); [ -n "$d" ] || d="$(go env GOPATH)/bin"; echo "$d"
+    cmds:
+      - rm -f "{{.INSTALL_DIR}}/{{.BINARY_NAME}}"
+      - rm -rf "{{.CONFIG_DIR}}"
 
   clean:
     desc: Remove build artifacts
@@ -141,13 +158,23 @@ tasks:
     cmds:
       - task: secrets-init
       - sops edit {{.SECRETS_FILE}} || [ $? -eq 200 ]  # 200 = saved without changes
+      - task: secrets-sync
+
+  secrets-sync:
+    desc: Copy the encrypted secrets to {{.CONFIG_DIR}} for the installed binary
+    preconditions:
+      - sh: test -f {{.SECRETS_FILE}}
+        msg: 'No {{.SECRETS_FILE}} yet; run `task secrets` first'
+    cmds:
+      - mkdir -p "{{.CONFIG_DIR}}"
+      - install -m 600 {{.SECRETS_FILE}} "{{.CONFIG_DIR}}/{{.SECRETS_FILE}}"
 
   secrets-init:
     internal: true
     deps: [secrets-check]
     status: ['test -f {{.SECRETS_FILE}}']
     cmds:
-      - printf 'OPENWEATHER_API_KEY=your_api_key_here\n' | sops encrypt --filename-override {{.SECRETS_FILE}} /dev/stdin > {{.SECRETS_FILE}}
+      - printf 'OPENWEATHER_API_KEY=your_api_key_here\nDEFAULT_ZIP_CODE=\n' | sops encrypt --filename-override {{.SECRETS_FILE}} /dev/stdin > {{.SECRETS_FILE}}
       - echo "Created {{.SECRETS_FILE}}; opening editor..."
 
   secrets-show:
@@ -164,6 +191,6 @@ tasks:
       - sh: test -f .env
         msg: No .env to migrate
     cmds:
-      - grep -E '^OPENWEATHER_API_KEY=' .env | sops encrypt --filename-override {{.SECRETS_FILE}} /dev/stdin > {{.SECRETS_FILE}}
+      - grep -E '^(OPENWEATHER_API_KEY|DEFAULT_ZIP_CODE)=' .env | sops encrypt --filename-override {{.SECRETS_FILE}} /dev/stdin > {{.SECRETS_FILE}}
       - shred -u .env 2>/dev/null || rm -f .env
       - echo "Migrated .env -> {{.SECRETS_FILE}} and removed plaintext .env"

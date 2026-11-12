@@ -77,6 +77,13 @@ Run `task --list` to see all available tasks (build, run, dev, test, release, se
    go run .
    ```
 
+6. **Install system-wide (optional):**
+   ```bash
+   task install   # builds ~/go/bin/weather-tui, copies secrets to ~/.config/weather-tui/
+   weather-tui    # now works from any directory
+   ```
+   `task secrets` re-copies the secrets after editing; `task uninstall` removes both.
+
 ## Usage
 
 ### Main Menu
@@ -147,7 +154,7 @@ decrypts it in memory at startup by calling `sops`, so plaintext never touches d
    ```
 2. Put your public key (`age-keygen -y ~/.config/sops/age/keys.txt`) in `.sops.yaml`.
 3. Create/edit the secret: `task secrets`
-4. Verify: `task secrets-show` (masked) or `./goWeatherTUI --debug`
+4. Verify: `task secrets-show` (masked) or `weather-tui --debug`
 
 Already have a plaintext `.env`? Run `task secrets-migrate` to encrypt it and delete the plaintext.
 
@@ -156,8 +163,11 @@ Already have a plaintext `.env`? Run `task secrets-migrate` to encrypt it and de
 
 **Key lookup order:**
 1. `OPENWEATHER_API_KEY` environment variable (handy for CI)
-2. `secrets.enc.env` decrypted via sops (recommended)
+2. `secrets.enc.env` decrypted via sops (recommended), from the current dir, then `~/.config/weather-tui/`
 3. Plaintext `.env` (legacy, gitignored)
+
+**Default ZIP code:** set `DEFAULT_ZIP_CODE=12345` in `secrets.enc.env` (via `task secrets`) to
+prefill the ZIP prompt. Same lookup order as above, using the `DEFAULT_ZIP_CODE` env var first.
 
 Use `SOPS_AGE_KEY_FILE` if your age key lives somewhere other than `~/.config/sops/age/keys.txt`.
 

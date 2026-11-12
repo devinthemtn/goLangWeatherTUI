@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -329,6 +330,11 @@ func chdirTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(orig) })
+	// Also hide the installed copy in the user config dir, and drop any
+	// cached decryption from earlier tests.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	sopsOnce = sync.Once{}
+	sopsPlaintext = ""
 }
 
 func TestParseDotenvValue(t *testing.T) {

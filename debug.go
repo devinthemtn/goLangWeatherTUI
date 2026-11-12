@@ -133,8 +133,8 @@ func debugEnvironment() {
 	}
 
 	// Check for sops-encrypted secrets file
-	if _, err := os.Stat(sopsSecretsFile); err == nil {
-		fmt.Printf("%s: ✅ EXISTS\n", sopsSecretsFile)
+	if path := findSecretsFile(); path != "" {
+		fmt.Printf("%s: ✅ EXISTS\n", path)
 		if _, err := exec.LookPath("sops"); err != nil {
 			fmt.Println("  - ❌ sops not found in PATH")
 		} else if key := readAPIKeyFromSops(); key != "" {
@@ -143,7 +143,7 @@ func debugEnvironment() {
 			fmt.Println("  - ❌ Could not decrypt (is your age key at ~/.config/sops/age/keys.txt or SOPS_AGE_KEY_FILE?)")
 		}
 	} else {
-		fmt.Printf("%s: ❌ NOT FOUND\n", sopsSecretsFile)
+		fmt.Printf("%s: ❌ NOT FOUND (checked current dir and ~/.config/%s/)\n", sopsSecretsFile, appConfigDirName)
 	}
 
 	// Check for legacy plaintext .env file

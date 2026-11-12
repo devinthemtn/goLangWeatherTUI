@@ -100,7 +100,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			switch m.state {
 			case MenuState:
-				return m, nil
+				// Enter with no selection defaults to [1] current location
+				m.state = LoadingState
+				m.loading = true
+				return m, m.fetchWeatherByLocation()
 			case ZipInputState:
 				if strings.TrimSpace(m.textInput.Value()) != "" {
 					m.state = LoadingState
@@ -119,7 +122,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "2":
 			if m.state == MenuState {
 				m.state = ZipInputState
-				m.textInput.SetValue("")
+				m.textInput.SetValue(getDefaultZip())
+				m.textInput.CursorEnd()
 				m.textInput.Focus()
 				return m, textinput.Blink
 			}
@@ -204,12 +208,12 @@ var (
 )
 
 func (m Model) menuView() string {
-	title := titleStyle.Render("🌤️  Weather TUI")
+	title := titleStyle.Render("⛅ Weather TUI")
 
 	menu := menuStyle.Render(
 		"Welcome to Weather TUI!\n\n" +
 			"Choose an option:\n\n" +
-			"[1] Get weather for current location\n" +
+			"[1] Get weather for current location (default: Enter)\n" +
 			"[2] Enter ZIP code\n\n" +
 			"[q] Quit",
 	)
@@ -223,7 +227,7 @@ func (m Model) menuView() string {
 }
 
 func (m Model) zipInputView() string {
-	title := titleStyle.Render("🌤️  Weather TUI")
+	title := titleStyle.Render("⛅ Weather TUI")
 
 	content := fmt.Sprintf(
 		"Enter ZIP Code:\n\n%s\n\n[Enter] Get Weather\n[Esc] Back to Menu",
@@ -241,7 +245,7 @@ func (m Model) zipInputView() string {
 }
 
 func (m Model) loadingView() string {
-	title := titleStyle.Render("🌤️  Weather TUI")
+	title := titleStyle.Render("⛅ Weather TUI")
 
 	loading := loadingStyle.Render("🔄 Loading weather data...")
 
@@ -258,13 +262,13 @@ func (m Model) weatherView() string {
 		return "No weather data available"
 	}
 
-	title := titleStyle.Render("🌤️  Weather TUI")
+	title := titleStyle.Render("⛅ Weather TUI")
 
 	// Main weather info
 	mainWeather := fmt.Sprintf(
 		"📍 %s\n"+
-			"🌡️  %.1f°F (Feels like %.1f°F)\n"+
-			"☁️  %s\n"+
+			"🌞 %.1f°F (Feels like %.1f°F)\n"+
+			"⛅ %s\n"+
 			"💧 Humidity: %d%%",
 		m.weather.Location,
 		m.weather.Temperature,
@@ -277,8 +281,8 @@ func (m Model) weatherView() string {
 	details := fmt.Sprintf(
 		"💨 Wind: %.1f mph\n"+
 			"🔽 Pressure: %.1f hPa\n"+
-			"👁️  Visibility: %.1f mi\n"+
-			"☀️ UV Index: %.1f",
+			"👀 Visibility: %.1f mi\n"+
+			"😎 UV Index: %.1f",
 		m.weather.WindSpeed,
 		m.weather.Pressure,
 		m.weather.Visibility,
@@ -310,7 +314,7 @@ func (m Model) weatherView() string {
 }
 
 func (m Model) errorView() string {
-	title := titleStyle.Render("🌤️  Weather TUI")
+	title := titleStyle.Render("⛅ Weather TUI")
 
 	errorMsg := errorStyle.Render(
 		fmt.Sprintf("❌ Error: %s\n\n[Esc] Back to Menu", m.error),
