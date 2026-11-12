@@ -35,7 +35,11 @@ A beautiful Terminal User Interface (TUI) application written in Go that display
 ## Prerequisites
 
 - Go 1.21 or later
+- [Task](https://taskfile.dev) (`go install github.com/go-task/task/v3/cmd/task@latest`)
+- [sops](https://github.com/getsops/sops) and [age](https://github.com/FiloSottile/age) for the encrypted API key
 - OpenWeatherMap API key (free)
+
+Run `task --list` to see all available tasks (build, run, dev, test, release, secrets, …).
 
 ## Installation
 
@@ -51,10 +55,11 @@ A beautiful Terminal User Interface (TUI) application written in Go that display
    - Navigate to your API keys section
    - Copy your API key
 
-3. **Configure the API key:**
-   - Open `weather.go`
-   - Find the line: `apiKey = "your_api_key_here"`
-   - Replace `"your_api_key_here"` with your actual API key
+3. **Configure the API key (encrypted with sops + age):**
+   ```bash
+   task secrets   # creates secrets.enc.env and opens it in $EDITOR
+   ```
+   Replace the placeholder with your key, save, and quit. See [API Key Setup](#api-key-setup).
 
 4. **Install dependencies:**
    ```bash
@@ -129,15 +134,32 @@ This project uses the following Go libraries:
 
 ### API Key Setup
 
-The application requires an OpenWeatherMap API key. To set it up:
+The API key is stored encrypted in `secrets.enc.env` using [sops](https://github.com/getsops/sops)
+with [age](https://github.com/FiloSottile/age) keys. The encrypted file is safe to commit; the app
+decrypts it in memory at startup by calling `sops`, so plaintext never touches disk.
 
-1. Open `weather.go`
-2. Locate the `apiKey` constant
-3. Replace the placeholder with your actual API key:
+**Prerequisites:** `sops` and `age` installed.
 
-```go
-const apiKey = "your_actual_api_key_here"
-```
+1. Generate an age key (once per machine):
+   ```bash
+   mkdir -p ~/.config/sops/age
+   age-keygen -o ~/.config/sops/age/keys.txt
+   ```
+2. Put your public key (`age-keygen -y ~/.config/sops/age/keys.txt`) in `.sops.yaml`.
+3. Create/edit the secret: `task secrets`
+4. Verify: `task secrets-show` (masked) or `./goWeatherTUI --debug`
+
+Already have a plaintext `.env`? Run `task secrets-migrate` to encrypt it and delete the plaintext.
+
+**Adding a teammate / another machine:** append their age public key to the `age:` list in
+`.sops.yaml` (comma-separated), then run `sops updatekeys secrets.enc.env`.
+
+**Key lookup order:**
+1. `OPENWEATHER_API_KEY` environment variable (handy for CI)
+2. `secrets.enc.env` decrypted via sops (recommended)
+3. Plaintext `.env` (legacy, gitignored)
+
+Use `SOPS_AGE_KEY_FILE` if your age key lives somewhere other than `~/.config/sops/age/keys.txt`.
 
 ### Customization Options
 

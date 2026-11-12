@@ -1,0 +1,7 @@
+# SOPS configuration: secrets are encrypted to these age recipients.
+# Add a teammate by appending their age public key (comma-separated) and
+# running: sops updatekeys secrets.enc.env
+creation_rules:
+  - path_regex: secrets\.enc\.env$
+    age: >-
+      age1jh6xgfsuczxwcfdgztku8u0aeuxxmuhlw6w3f9vrmque8mrml5qs9fqfsp

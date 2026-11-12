@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,9 +21,8 @@ const (
 	// IP Geolocation service (free, no API key required)
 	ipGeolocationURL = "https://ipapi.co/json/"
 
-	// You need to set your OpenWeatherMap API key here
-	// Get a free API key at: https://openweathermap.org/api
-	// Can be set via environment variable OPENWEATHER_API_KEY or hardcoded below
+	// OpenWeatherMap API key: get one free at https://openweathermap.org/api
+	// and store it encrypted with sops+age (see README / `make secrets`).
 )
 
 // OpenWeatherMap API response structures
@@ -280,56 +277,33 @@ func getWeatherByCoordinates(lat, lon float64) (*WeatherData, error) {
 	return weather, nil
 }
 
-// Helper function to get API key from environment or fallback
+// Helper function to get API key. Lookup order:
+//  1. OPENWEATHER_API_KEY environment variable
+//  2. sops+age encrypted secrets.enc.env (recommended)
+//  3. plaintext .env file (legacy, gitignored)
 func getAPIKey() string {
-	// Try to get from environment variable first
 	if key := os.Getenv("OPENWEATHER_API_KEY"); key != "" {
 		return key
 	}
 
-	// Try to read from .env file
+	if key := readAPIKeyFromSops(); key != "" {
+		return key
+	}
+
 	if key := readAPIKeyFromEnvFile(); key != "" {
 		return key
 	}
 
-	// Fallback to hardcoded value (not recommended for production)
 	return "your_api_key_here"
 }
 
-// Helper function to read API key from .env file
+// Helper function to read API key from a plaintext .env file (legacy).
 func readAPIKeyFromEnvFile() string {
-	file, err := os.Open(".env")
+	data, err := os.ReadFile(".env")
 	if err != nil {
 		return ""
 	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Look for OPENWEATHER_API_KEY=value
-		if strings.HasPrefix(line, "OPENWEATHER_API_KEY=") {
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				value := strings.TrimSpace(parts[1])
-				// Remove quotes if present
-				if len(value) >= 2 &&
-					((strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
-						(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'"))) {
-					value = value[1 : len(value)-1]
-				}
-				return value
-			}
-		}
-	}
-
-	return ""
+	return parseDotenvValue(string(data), "OPENWEATHER_API_KEY")
 }
 
 // Helper function to check if API key is configured

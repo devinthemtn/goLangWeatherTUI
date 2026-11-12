@@ -18,7 +18,7 @@ func main() {
 
 	if *debugMode || *testAPI {
 		fmt.Println("🌤️  Weather TUI - Debug Mode")
-		fmt.Println("==============================\n")
+		fmt.Print("==============================\n\n")
 
 		// Show environment debug info
 		debugEnvironment()

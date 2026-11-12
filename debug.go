@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -74,8 +75,8 @@ func debugAPIKey() {
 	}
 
 	fmt.Println("\n💡 Troubleshooting Tips:")
-	fmt.Println("1. Set environment variable: export OPENWEATHER_API_KEY=your_key")
-	fmt.Println("2. Or create .env file with: OPENWEATHER_API_KEY=your_key")
+	fmt.Println("1. Store it encrypted (recommended): task secrets  (uses sops + age)")
+	fmt.Println("2. Or set environment variable: export OPENWEATHER_API_KEY=your_key")
 	fmt.Println("3. Get free API key at: https://openweathermap.org/api")
 	fmt.Println("4. Make sure there are no extra spaces in your key")
 	fmt.Println("5. Check if your terminal session has the variable set")
@@ -131,8 +132,23 @@ func debugEnvironment() {
 		fmt.Printf("Current Directory: %s\n", cwd)
 	}
 
-	// Check for .env file
+	// Check for sops-encrypted secrets file
+	if _, err := os.Stat(sopsSecretsFile); err == nil {
+		fmt.Printf("%s: ✅ EXISTS\n", sopsSecretsFile)
+		if _, err := exec.LookPath("sops"); err != nil {
+			fmt.Println("  - ❌ sops not found in PATH")
+		} else if key := readAPIKeyFromSops(); key != "" {
+			fmt.Println("  - ✅ Decrypted successfully (API key present)")
+		} else {
+			fmt.Println("  - ❌ Could not decrypt (is your age key at ~/.config/sops/age/keys.txt or SOPS_AGE_KEY_FILE?)")
+		}
+	} else {
+		fmt.Printf("%s: ❌ NOT FOUND\n", sopsSecretsFile)
+	}
+
+	// Check for legacy plaintext .env file
 	if _, err := os.Stat(".env"); err == nil {
+		fmt.Println("⚠️  Plaintext .env found — consider migrating: task secrets-migrate")
 		fmt.Println(".env file: ✅ EXISTS")
 		// Try to read API key from .env file
 		envFileKey := readAPIKeyFromEnvFile()

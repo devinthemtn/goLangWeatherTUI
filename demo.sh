@@ -159,8 +159,8 @@ main() {
             ;;
         2)
             print_header "📚 Application Help"
-            if command_exists make; then
-                make help
+            if command_exists task; then
+                task --list
             else
                 print_color $CYAN "Available commands:"
                 echo "  go run .              # Run the application"
@@ -175,21 +175,21 @@ main() {
             if command_exists tree; then
                 tree -I 'bin|.git'
             else
-                find . -type f -name "*.go" -o -name "*.md" -o -name "Makefile" -o -name ".env*" | grep -v "/\." | sort
+                find . -type f -name "*.go" -o -name "*.md" -o -name "Taskfile.yml" -o -name ".env*" | grep -v "/\." | sort
             fi
             ;;
         4)
             print_header "🔧 Development Information"
             print_color $CYAN "Development commands:"
             echo
-            if command_exists make; then
-                print_color $GREEN "Using Makefile:"
-                echo "  make setup    # Setup development environment"
-                echo "  make run      # Run the application"
-                echo "  make build    # Build the application"
-                echo "  make dev      # Development mode (requires entr)"
-                echo "  make test     # Run tests"
-                echo "  make clean    # Clean build artifacts"
+            if command_exists task; then
+                print_color $GREEN "Using Taskfile (https://taskfile.dev):"
+                echo "  task setup    # Setup development environment"
+                echo "  task run      # Run the application"
+                echo "  task build    # Build the application"
+                echo "  task dev      # Development mode (auto-reload)"
+                echo "  task test     # Run tests"
+                echo "  task clean    # Clean build artifacts"
             else
                 print_color $GREEN "Direct Go commands:"
                 echo "  go run .              # Run directly"
@@ -215,7 +215,7 @@ main() {
     echo
     print_color $GREEN "Demo completed!"
     print_color $CYAN "To run the application again: ./weather-tui"
-    print_color $CYAN "To get help: make help (if make is available)"
+    print_color $CYAN "To get help: task --list (if task is installed)"
 }
 
 # Cleanup function

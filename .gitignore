@@ -30,3 +30,11 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Secrets: only the sops-encrypted file (secrets.enc.env) may be committed
+secrets.env
+*.dec.env
+keys.txt
+
+# go-task checksum cache
+.task/

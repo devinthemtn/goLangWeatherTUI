@@ -120,13 +120,18 @@ main() {
     print_header "💾 Configuration Method"
 
     echo "How would you like to store your API key?"
-    echo "1) Environment variable (recommended for permanent setup)"
-    echo "2) .env file (recommended for development)"
-    echo "3) Both (most flexible)"
+    echo "1) Environment variable (plaintext in shell rc)"
+    echo "2) .env file (plaintext, legacy)"
+    echo "3) Both (plaintext)"
+    echo "4) Encrypted secrets.enc.env with sops + age (recommended)"
     echo
-    read -p "Choose option (1-3): " config_method
+    read -p "Choose option (1-4) [4]: " config_method
+    config_method=${config_method:-4}
 
     case $config_method in
+        4)
+            setup_sops "$api_key"
+            ;;
         1)
             setup_environment_variable "$api_key"
             ;;
@@ -259,6 +264,38 @@ EOF
     fi
 
     print_color $GREEN "✅ .env file configured"
+}
+
+setup_sops() {
+    local api_key=$1
+    local age_key_file="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+
+    if ! command -v sops >/dev/null 2>&1 || ! command -v age-keygen >/dev/null 2>&1; then
+        print_color $RED "❌ sops and age are required for encrypted storage."
+        print_color $YELLOW "Install: https://github.com/getsops/sops and https://github.com/FiloSottile/age"
+        exit 1
+    fi
+
+    if [ ! -f "$age_key_file" ]; then
+        print_color $YELLOW "Generating age key at $age_key_file"
+        mkdir -p "$(dirname "$age_key_file")"
+        age-keygen -o "$age_key_file"
+        chmod 600 "$age_key_file"
+    fi
+
+    local pubkey
+    pubkey=$(age-keygen -y "$age_key_file")
+    if ! grep -q "$pubkey" .sops.yaml 2>/dev/null; then
+        print_color $YELLOW "⚠️  Your age public key is not in .sops.yaml:"
+        print_color $CYAN "   $pubkey"
+        print_color $YELLOW "Add it to the age: list in .sops.yaml, then re-run this script."
+        exit 1
+    fi
+
+    printf 'OPENWEATHER_API_KEY=%s\n' "$api_key" | \
+        sops encrypt --filename-override secrets.enc.env /dev/stdin > secrets.enc.env
+
+    print_color $GREEN "✅ API key encrypted into secrets.enc.env (safe to commit)"
 }
 
 # Check prerequisites

@@ -29,6 +29,9 @@ func TestGetAPIKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Isolate from any real secrets.enc.env / .env in the repo
+			chdirTemp(t)
+
 			// Store original value
 			originalValue := os.Getenv("OPENWEATHER_API_KEY")
 			defer os.Setenv("OPENWEATHER_API_KEY", originalValue)
@@ -74,6 +77,9 @@ func TestIsAPIKeyConfigured(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Isolate from any real secrets.enc.env / .env in the repo
+			chdirTemp(t)
+
 			// Store original value
 			originalValue := os.Getenv("OPENWEATHER_API_KEY")
 			defer os.Setenv("OPENWEATHER_API_KEY", originalValue)
@@ -308,5 +314,39 @@ func BenchmarkIsAPIKeyConfigured(b *testing.B) {
 func BenchmarkInitialModel(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		initialModel()
+	}
+}
+
+// chdirTemp switches into a fresh temp dir for the duration of the test so
+// local secret files (secrets.enc.env, .env) don't leak into results.
+func chdirTemp(t *testing.T) {
+	t.Helper()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+}
+
+func TestParseDotenvValue(t *testing.T) {
+	content := "# comment\n\nOTHER=x\nOPENWEATHER_API_KEY=\"quoted123\"\n"
+	if got := parseDotenvValue(content, "OPENWEATHER_API_KEY"); got != "quoted123" {
+		t.Errorf("got %q, want %q", got, "quoted123")
+	}
+	if got := parseDotenvValue("OPENWEATHER_API_KEY='single'", "OPENWEATHER_API_KEY"); got != "single" {
+		t.Errorf("got %q, want %q", got, "single")
+	}
+	if got := parseDotenvValue("NOPE=1", "OPENWEATHER_API_KEY"); got != "" {
+		t.Errorf("got %q, want empty", got)
+	}
+}
+
+func TestReadAPIKeyFromSopsMissingFile(t *testing.T) {
+	chdirTemp(t)
+	if got := readAPIKeyFromSops(); got != "" {
+		t.Errorf("expected empty key when %s is absent, got %q", sopsSecretsFile, got)
 	}
 }

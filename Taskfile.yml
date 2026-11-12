@@ -1,0 +1,169 @@
+# Weather TUI tasks — run `task --list` to see everything.
+# https://taskfile.dev
+version: '3'
+
+vars:
+  BINARY_NAME: weather-tui
+  BUILD_DIR: ./bin
+  LDFLAGS: -s -w
+  SECRETS_FILE: secrets.enc.env
+  AGE_KEY_FILE: '{{.SOPS_AGE_KEY_FILE | default (printf "%s/.config/sops/age/keys.txt" .HOME)}}'
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the application
+    sources: ['**/*.go', go.mod, go.sum]
+    generates: ['{{.BUILD_DIR}}/{{.BINARY_NAME}}']
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BINARY_NAME}} .
+
+  build-all:
+    desc: Build for linux, macOS (amd64/arm64) and windows
+    cmds:
+      - for: [linux/amd64, darwin/amd64, darwin/arm64, windows/amd64]
+        task: build-platform
+        vars: { PLATFORM: '{{.ITEM}}' }
+
+  build-platform:
+    internal: true
+    vars:
+      GOOS: '{{index (splitList "/" .PLATFORM) 0}}'
+      GOARCH: '{{index (splitList "/" .PLATFORM) 1}}'
+      EXT: '{{if eq .GOOS "windows"}}.exe{{end}}'
+    env:
+      GOOS: '{{.GOOS}}'
+      GOARCH: '{{.GOARCH}}'
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-{{.GOOS}}-{{.GOARCH}}{{.EXT}} .
+
+  run:
+    desc: Run the application
+    interactive: true
+    cmds:
+      - go run .
+
+  dev:
+    desc: Rebuild and rerun on file changes
+    watch: true
+    sources: ['**/*.go']
+    cmds:
+      - go run .
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test -v ./...
+
+  deps:
+    desc: Download and tidy dependencies
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  update:
+    desc: Update dependencies
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+
+  install:
+    desc: Install to GOPATH/bin
+    cmds:
+      - go install .
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - go clean
+      - rm -rf {{.BUILD_DIR}}
+
+  release:
+    desc: Clean, build all platforms and archive
+    cmds:
+      - task: clean
+      - task: deps
+      - task: build-all
+      - cd {{.BUILD_DIR}} && tar -czf {{.BINARY_NAME}}-release.tar.gz *
+
+  fmt:
+    desc: Format code
+    cmds:
+      - go fmt ./...
+
+  lint:
+    desc: Lint code (requires golangci-lint)
+    preconditions:
+      - sh: command -v golangci-lint
+        msg: 'golangci-lint not found. Install: https://golangci-lint.run/'
+    cmds:
+      - golangci-lint run
+
+  check-tools:
+    desc: Check that required tools are installed
+    cmds:
+      - go version
+      - sops --version --disable-version-check
+      - age --version
+
+  setup:
+    desc: Set up the dev environment (deps + encrypted API key)
+    cmds:
+      - echo "Get your API key at https://openweathermap.org/api"
+      - task: deps
+      - task: secrets
+
+  # --- Secrets (sops + age) -----------------------------------------------
+
+  secrets-check:
+    internal: true
+    preconditions:
+      - sh: command -v sops
+        msg: 'sops is required: https://github.com/getsops/sops'
+      - sh: command -v age-keygen
+        msg: 'age is required: https://github.com/FiloSottile/age'
+      - sh: '[ -n "$SOPS_AGE_KEY" ] || [ -f "{{.AGE_KEY_FILE}}" ]'
+        msg: |
+          No age key found. Generate one with:
+            mkdir -p $(dirname {{.AGE_KEY_FILE}}) && age-keygen -o {{.AGE_KEY_FILE}}
+          then add its public key to .sops.yaml
+
+  secrets:
+    desc: Create or edit the encrypted secrets.enc.env in $EDITOR
+    interactive: true
+    cmds:
+      - task: secrets-init
+      - sops edit {{.SECRETS_FILE}} || [ $? -eq 200 ]  # 200 = saved without changes
+
+  secrets-init:
+    internal: true
+    deps: [secrets-check]
+    status: ['test -f {{.SECRETS_FILE}}']
+    cmds:
+      - printf 'OPENWEATHER_API_KEY=your_api_key_here\n' | sops encrypt --filename-override {{.SECRETS_FILE}} /dev/stdin > {{.SECRETS_FILE}}
+      - echo "Created {{.SECRETS_FILE}}; opening editor..."
+
+  secrets-show:
+    desc: Show decrypted secrets (masked)
+    silent: true
+    deps: [secrets-check]
+    cmds:
+      - sops decrypt {{.SECRETS_FILE}} | sed -E 's/=(.{4}).*(.{4})$/=\1****\2/'
+
+  secrets-migrate:
+    desc: Encrypt a plaintext .env into secrets.enc.env and delete the plaintext
+    deps: [secrets-check]
+    preconditions:
+      - sh: test -f .env
+        msg: No .env to migrate
+    cmds:
+      - grep -E '^OPENWEATHER_API_KEY=' .env | sops encrypt --filename-override {{.SECRETS_FILE}} /dev/stdin > {{.SECRETS_FILE}}
+      - shred -u .env 2>/dev/null || rm -f .env
+      - echo "Migrated .env -> {{.SECRETS_FILE}} and removed plaintext .env"
